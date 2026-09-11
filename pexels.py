@@ -14,7 +14,7 @@ headers = {
 }
 
 params = {
-    "query": "boys in saree",
+    "query": "yellow shirt and black pants outfits",
     "per_page": 5
 }
 
