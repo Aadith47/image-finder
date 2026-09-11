@@ -14,7 +14,7 @@ headers = {
 }
 
 params = {
-    "query": "coffee with chatgpt open",
+    "query": "boys in saree",
     "per_page": 5
 }
 
