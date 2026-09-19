@@ -7,9 +7,9 @@ def tokenize(text):
 
 def calculate_score(context, image):
     context_words = tokenize(context)
-    photographer_words = tokenize(image.photographer)
+    alt_words = tokenize(image.alt)
 
-    score = len(context_words.intersection(photographer_words))
+    score = len(context_words.intersection(alt_words))
 
     return score
 
