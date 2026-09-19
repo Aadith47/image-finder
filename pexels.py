@@ -3,38 +3,45 @@ import os
 import requests
 from dotenv import load_dotenv
 
+from models import Image
+
 load_dotenv()
 
-api_key = os.getenv("PEXELS_API_KEY")
 
-url = "https://api.pexels.com/v1/search"
+def search_images(query, per_page=5):
+    api_key = os.getenv("PEXELS_API_KEY")
 
-headers = {
-    "Authorization": api_key
-}
+    url = "https://api.pexels.com/v1/search"
 
-params = {
-    "query": "yellow shirt and black pants outfits",
-    "per_page": 5
-}
+    headers = {
+        "Authorization": api_key
+    }
 
-response = requests.get(
-    url,
-    headers=headers,
-    params=params
-)
+    params = {
+        "query": query,
+        "per_page": per_page
+    }
 
-data = response.json()
+    response = requests.get(
+        url,
+        headers=headers,
+        params=params
+    )
 
-print(data)
+    data = response.json()
 
-print("Status:", response.status_code)
-print("Total results:", data["total_results"])
+    images = []
 
-for photo in data["photos"]:
-    print("Photo Details")
-    print("ID:", photo["id"])
-    print("Photographer:", photo["photographer"])
-    print("Width:", photo["width"])
-    print("Height:", photo["height"])
-    print("Image URL:", photo["src"]["original"])
+    for photo in data["photos"]:
+        image = Image(
+            id=photo["id"],
+            photographer=photo["photographer"],
+            width=photo["width"],
+            height=photo["height"],
+            alt=photo["alt"],
+            image_url=photo["src"]["original"]
+        )
+
+        images.append(image)
+
+    return images
