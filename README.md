@@ -1,4 +1,4 @@
-# 🖼️ Image Finder
+ c# 🖼️ Image Finder
 
 A Python CLI tool that uses **Gemini AI** to understand natural-language image descriptions and finds relevant stock photos via the **Pexels API**.
 
