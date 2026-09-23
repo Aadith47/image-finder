@@ -1,6 +1,8 @@
+import os
 from typing import TypedDict
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 
 from search import search_from_queries
 from ranker import rank_images
@@ -12,29 +14,21 @@ class ImageFinderState(TypedDict):
     images: list
 
 
-def generate_queries(state: ImageFinderState) -> ImageFinderState:
-    model = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
-
-    prompt = (
-        "You generate short image-search queries.\n"
-        f"User description: {state['context']}\n"
-        "Give exactly 3 short search queries, one per line, "
-        "no numbering, no extra text."
-    )
-
-    response = model.invoke(prompt)
-
+def extract_text(response) -> str:
     if isinstance(response.content, str):
-        text = response.content
-    else:
-        parts = []
-        for block in response.content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict) and "text" in block:
-                parts.append(block["text"])
-        text = "\n".join(parts)
+        return response.content
 
+    parts = []
+    for block in response.content:
+        if isinstance(block, str):
+            parts.append(block)
+        elif isinstance(block, dict) and "text" in block:
+            parts.append(block["text"])
+
+    return "\n".join(parts)
+
+
+def parse_queries(text: str) -> list[str]:
     lines = text.strip().split("\n")
 
     queries = []
@@ -43,7 +37,40 @@ def generate_queries(state: ImageFinderState) -> ImageFinderState:
         if cleaned:
             queries.append(cleaned)
 
-    state["queries"] = queries
+    return queries
+
+
+def build_prompt(context: str) -> str:
+    return (
+        "You generate short image-search queries.\n"
+        f"User description: {context}\n"
+        "Give exactly 3 short search queries, one per line, "
+        "no numbering, no extra text."
+    )
+
+
+def generate_queries(state: ImageFinderState) -> ImageFinderState:
+    prompt = build_prompt(state["context"])
+
+    try:
+        model = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
+        response = model.invoke(prompt)
+        text = extract_text(response)
+        print("Using Gemini......")
+
+    except Exception as error:
+        print(f"Gemini failed ({error}), falling back to OpenRouter/Gemma...")
+
+        fallback_model = ChatOpenAI(
+            model="google/gemma-4-31b-it:free",
+            api_key=os.getenv("OPENROUTER_API_KEY"),
+            base_url="https://openrouter.ai/api/v1",
+        )
+        response = fallback_model.invoke(prompt)
+        text = extract_text(response)
+        print("(Using OpenRouter.....)")
+
+    state["queries"] = parse_queries(text)
     return state
 
 
