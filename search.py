@@ -6,11 +6,11 @@ def search_from_queries(queries, per_query=5):
     seen_ids = set()
 
     for query in queries:
-        images = search_images(query, per_query)
+        results = search_images(query, per_page=per_query)
 
-        for image in images:
+        for image in results:
             if image.id not in seen_ids:
-                all_images.append(image)
                 seen_ids.add(image.id)
+                all_images.append(image)
 
     return all_images
