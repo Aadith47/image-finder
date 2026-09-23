@@ -24,8 +24,6 @@ def generate_queries(state: ImageFinderState) -> ImageFinderState:
 
     response = model.invoke(prompt)
 
-    # response.content can be a plain string, or a list of content blocks
-    # depending on the langchain-google-genai version.
     if isinstance(response.content, str):
         text = response.content
     else:
