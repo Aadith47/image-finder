@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 @dataclass
 class Image:
-    id: int
+    id: str
     photographer: str
     width: int
     height: int

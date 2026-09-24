@@ -12,6 +12,8 @@ def main():
     result = graph.invoke({
         "context": context,
         "queries": [],
+        "pexels_images": [],
+        "unsplash_images": [],
         "images": []
     })
 

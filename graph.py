@@ -5,12 +5,16 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
 from search import search_from_queries
+from pexels import search_images as pexels_search
+from unsplash import search_images as unsplash_search
 from ranker import rank_images
 
 
 class ImageFinderState(TypedDict):
     context: str
     queries: list[str]
+    pexels_images: list
+    unsplash_images: list
     images: list
 
 
@@ -56,7 +60,7 @@ def generate_queries(state: ImageFinderState) -> ImageFinderState:
         model = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
         response = model.invoke(prompt)
         text = extract_text(response)
-        print("Using Gemini......")
+        print("(used Gemini)")
 
     except Exception as error:
         print(f"Gemini failed ({error}), falling back to OpenRouter/Gemma...")
@@ -68,15 +72,36 @@ def generate_queries(state: ImageFinderState) -> ImageFinderState:
         )
         response = fallback_model.invoke(prompt)
         text = extract_text(response)
-        print("(Using OpenRouter.....)")
+        print("(used OpenRouter fallback)")
 
     state["queries"] = parse_queries(text)
     return state
 
 
 def search_pexels(state: ImageFinderState) -> ImageFinderState:
-    images = search_from_queries(state["queries"], per_query=5)
-    state["images"] = images
+    images = search_from_queries(state["queries"], pexels_search, per_query=5)
+    state["pexels_images"] = images
+    return state
+
+
+def search_unsplash(state: ImageFinderState) -> ImageFinderState:
+    images = search_from_queries(state["queries"], unsplash_search, per_query=5)
+    state["unsplash_images"] = images
+    return state
+
+
+def combine_images(state: ImageFinderState) -> ImageFinderState:
+    combined = []
+    seen_urls = set()
+
+    all_images = state["pexels_images"] + state["unsplash_images"]
+
+    for image in all_images:
+        if image.image_url not in seen_urls:
+            seen_urls.add(image.image_url)
+            combined.append(image)
+
+    state["images"] = combined
     return state
 
 
@@ -90,11 +115,15 @@ def create_graph():
 
     graph.add_node("generate_queries", generate_queries)
     graph.add_node("search_pexels", search_pexels)
+    graph.add_node("search_unsplash", search_unsplash)
+    graph.add_node("combine_images", combine_images)
     graph.add_node("rank_images", rank_node)
 
     graph.set_entry_point("generate_queries")
     graph.add_edge("generate_queries", "search_pexels")
-    graph.add_edge("search_pexels", "rank_images")
+    graph.add_edge("search_pexels", "search_unsplash")
+    graph.add_edge("search_unsplash", "combine_images")
+    graph.add_edge("combine_images", "rank_images")
     graph.add_edge("rank_images", END)
 
     return graph.compile()
