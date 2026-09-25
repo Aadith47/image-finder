@@ -14,6 +14,7 @@ def main():
         "queries": [],
         "pexels_images": [],
         "unsplash_images": [],
+        "pixabay_images": [],
         "images": []
     })
 
