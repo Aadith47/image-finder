@@ -4,6 +4,7 @@ from typing import TypedDict
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
 
 from search import search_from_queries
 from pexels import search_images as pexels_search
@@ -21,6 +22,15 @@ class ImageFinderState(TypedDict):
     unsplash_images: list
     pixabay_images: list
     images: list
+
+
+class QueryInfo(BaseModel):
+    main_subject: str = Field(description="the main thing in the image")
+    environment: str = Field(description="where the scene takes place")
+    device: str = Field(description="any device present, empty string if none")
+    screen_content: str = Field(description="what is on a screen, empty string if not applicable")
+    style: str = Field(description="visual style, e.g. realistic, illustration")
+    queries: list[str] = Field(description="exactly 3 short image-search strings")
 
 
 def extract_text(response) -> str:
@@ -104,12 +114,12 @@ def generate_queries(state: ImageFinderState) -> ImageFinderState:
 
     try:
         model = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
-        response = model.invoke(prompt)
-        text = extract_text(response)
-        print("(used Gemini)")
-        structured, queries = parse_structured_response(text)
-        state["structured_info"] = structured
-        state["queries"] = queries
+        structured_model = model.with_structured_output(QueryInfo)
+        result = structured_model.invoke(prompt)
+        print("(used Gemini, structured output)")
+
+        state["structured_info"] = result.model_dump()
+        state["queries"] = result.queries
         return state
 
     except Exception as error:
