@@ -1,4 +1,5 @@
 import os
+import json
 from typing import TypedDict
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -9,11 +10,13 @@ from pexels import search_images as pexels_search
 from unsplash import search_images as unsplash_search
 from pixabay import search_images as pixabay_search
 from ranker import rank_images
+from jev import rank_with_jev
 
 
 class ImageFinderState(TypedDict):
     context: str
     queries: list[str]
+    structured_info: dict
     pexels_images: list
     unsplash_images: list
     pixabay_images: list
@@ -21,6 +24,8 @@ class ImageFinderState(TypedDict):
 
 
 def extract_text(response) -> str:
+    # response.content can be a plain string, or a list of content blocks,
+    # depending on the model/provider. Normalize both shapes into one string.
     if isinstance(response.content, str):
         return response.content
 
@@ -48,11 +53,50 @@ def parse_queries(text: str) -> list[str]:
 
 def build_prompt(context: str) -> str:
     return (
-        "You generate short image-search queries.\n"
-        f"User description: {context}\n"
-        "Give exactly 3 short search queries, one per line, "
-        "no numbering, no extra text."
+        "You analyze an image description and break it down into structured fields.\n"
+        f"User description: {context}\n\n"
+        "Return ONLY a JSON object, no markdown, no code fences, no extra text, "
+        "with exactly these keys:\n"
+        '  "main_subject": the main thing in the image\n'
+        '  "environment": where the scene takes place\n'
+        '  "device": any device present, or "" if none\n'
+        '  "screen_content": what is on a screen, or "" if not applicable\n'
+        '  "style": visual style, e.g. realistic, illustration\n'
+        '  "queries": a list of exactly 3 short image-search strings\n\n'
+        "Use an empty string for any field that doesn't apply."
     )
+
+
+def parse_structured_response(text: str):
+    # A model may still wrap JSON in a code fence even when told not to -
+    # strip that off before trying to parse it.
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:]
+        cleaned = cleaned.strip()
+
+    try:
+        data = json.loads(cleaned)
+        queries = data.get("queries", [])
+        if isinstance(queries, list) and queries:
+            return data, queries
+    except (json.JSONDecodeError, AttributeError):
+        pass
+
+    # JSON parsing failed or came back empty - fall back to the old
+    # line-by-line style so a query still gets generated either way.
+    return None, parse_queries(text)
+
+
+FALLBACK_MODELS = [
+    "google/gemma-4-31b-it:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "openai/gpt-oss-20b:free",
+    "z-ai/glm-4.5-air:free",
+    "mistralai/mistral-small-4:free",
+]
 
 
 def generate_queries(state: ImageFinderState) -> ImageFinderState:
@@ -62,21 +106,38 @@ def generate_queries(state: ImageFinderState) -> ImageFinderState:
         model = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
         response = model.invoke(prompt)
         text = extract_text(response)
-        print("(Using Gemini.....)")
+        print("(used Gemini)")
+        structured, queries = parse_structured_response(text)
+        state["structured_info"] = structured
+        state["queries"] = queries
+        return state
 
     except Exception as error:
-        print(f"Gemini failed ({error}), falling back to OpenRouter/Gemma...")
+        print(f"Gemini failed ({error}), trying OpenRouter fallbacks...")
 
-        fallback_model = ChatOpenAI(
-            model="google/gemma-4-31b-it:free",
-            api_key=os.getenv("OPENROUTER_API_KEY"),
-            base_url="https://openrouter.ai/api/v1",
-        )
-        response = fallback_model.invoke(prompt)
-        text = extract_text(response)
-        print("(used OpenRouter fallback)")
+    api_key = os.getenv("OPENROUTER_API_KEY")
 
-    state["queries"] = parse_queries(text)
+    for model_name in FALLBACK_MODELS:
+        try:
+            fallback_model = ChatOpenAI(
+                model=model_name,
+                api_key=api_key,
+                base_url="https://openrouter.ai/api/v1",
+            )
+            response = fallback_model.invoke(prompt)
+            text = extract_text(response)
+            print(f"(used OpenRouter fallback: {model_name})")
+            structured, queries = parse_structured_response(text)
+            state["structured_info"] = structured
+            state["queries"] = queries
+            return state
+
+        except Exception as error:
+            print(f"{model_name} failed ({error}), trying next fallback...")
+
+    print("All fallback models failed, no queries generated")
+    state["structured_info"] = None
+    state["queries"] = []
     return state
 
 
@@ -100,13 +161,14 @@ def search_pixabay(state: ImageFinderState) -> ImageFinderState:
 
 def combine_images(state: ImageFinderState) -> ImageFinderState:
     combined = []
-    seen_urls = set()
+    seen_keys = set()
 
     all_images = state["pexels_images"] + state["unsplash_images"] + state["pixabay_images"]
 
     for image in all_images:
-        if image.image_url not in seen_urls:
-            seen_urls.add(image.image_url)
+        key = (image.source, str(image.id))
+        if key not in seen_keys:
+            seen_keys.add(key)
             combined.append(image)
 
     state["images"] = combined
@@ -114,7 +176,14 @@ def combine_images(state: ImageFinderState) -> ImageFinderState:
 
 
 def rank_node(state: ImageFinderState) -> ImageFinderState:
-    state["images"] = rank_images(state["context"], state["images"])
+    try:
+        state["images"] = rank_with_jev(state["context"], state["images"])
+        print("(ranked using Jev)")
+
+    except Exception as error:
+        print(f"Jev ranking failed ({error}), falling back to keyword ranker...")
+        state["images"] = rank_images(state["context"], state["images"])
+
     return state
 
 
