@@ -1,133 +1,122 @@
- c# 🖼️ Image Finder
+# Image Finder
 
-A Python CLI tool that uses **Gemini AI** to understand natural-language image descriptions and finds relevant stock photos via the **Pexels API**.
-
-## Overview
-
-Instead of searching with simple keywords, Image Finder lets you describe the image you need in plain English. Gemini converts your description into optimized search queries, and the tool fetches matching images from Pexels — deduplicating results automatically.
-
-**Example:**
-
-```text
-Describe the image you need: A coffee on a table with GitHub open on a monitor
-```
-
-## Architecture
+A Python tool that takes a plain-English description of an image and finds the best matching photos across multiple stock image platforms — Pexels, Unsplash, and Pixabay — combined, deduplicated, and ranked by relevance.
 
 ```
-User prompt
-    │
-    ▼
-┌──────────────────┐
-│  main.py         │  ← Entry point & Gemini query generation
-└────────┬─────────┘
-         │ 3 search queries
-         ▼
-┌──────────────────┐
-│  search.py       │  ← Orchestrates searches & deduplicates
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│  pexels.py       │  ← Pexels API client
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│  models.py       │  ← Image dataclass
-└──────────────────┘
-
-┌──────────────────┐
-│  ranker.py       │  ← Keyword-overlap relevance ranker (available for use)
-└──────────────────┘
+"a coffee on a wooden table with ChatGPT open on the laptop"
+        ↓
+   Gemini breaks it down and writes search queries
+        ↓
+   Searched across Pexels + Unsplash + Pixabay
+        ↓
+   Combined, deduplicated
+        ↓
+   Ranked by relevance (Jev)
+        ↓
+   Top results shown
 ```
 
-## Modules
+## Features
 
-| File | Purpose |
-|------|---------|
-| `main.py` | CLI entry point. Prompts the user, calls Gemini to generate 3 search queries, fetches images, and prints results. |
-| `search.py` | Runs each query through the Pexels client and deduplicates results by image ID. |
-| `pexels.py` | Wraps the Pexels `/v1/search` endpoint. Returns a list of `Image` objects. |
-| `models.py` | Defines the `Image` dataclass (`id`, `photographer`, `width`, `height`, `image_url`, `alt`, `source`). |
-| `ranker.py` | Provides a token-overlap scoring function to rank images by relevance to the original description. |
+- **Natural-language input** — describe what you want, no need to think in search-engine keywords
+- **Structured understanding** — Gemini breaks your description into main subject, environment, device, screen content, and style, then generates 3 targeted search queries from that
+- **Three image platforms searched in parallel logic** — Pexels, Unsplash, and Pixabay, all normalized into one common format
+- **Cross-platform deduplication** — the same photo won't show up twice, even if different search queries surface it under different URLs
+- **AI-based relevance ranking** — uses Jev (TypeSafe AI) to judge which images actually match your description, not just keyword overlap, with an automatic fallback to keyword scoring if that's unavailable
+- **Resilient query generation** — if Gemini is unreachable, it falls back through five other free models on OpenRouter before giving up
+- **Two ways to use it** — a command-line interface (`main.py`) and a Streamlit web UI (`app.py`)
 
-## Prerequisites
+## Project structure
 
-- **Python 3.10+**
-- A **Gemini API key** — [Get one here](https://ai.google.dev/)
-- A **Pexels API key** — [Get one here](https://www.pexels.com/api/)
+```
+image-finder/
+├── main.py         # CLI entry point
+├── app.py          # Streamlit web UI
+├── graph.py        # LangGraph pipeline: query generation, search, combine, rank
+├── search.py       # Runs a list of queries against one platform, dedupes results
+├── pexels.py       # Pexels API wrapper
+├── unsplash.py     # Unsplash API wrapper
+├── pixabay.py      # Pixabay API wrapper
+├── jev.py          # Jev (TypeSafe) relevance-ranking wrapper
+├── ranker.py       # Fallback keyword-overlap ranker
+├── models.py       # Shared Image data structure
+├── .env            # API keys (not committed)
+└── .gitignore
+```
+
+## How it works
+
+The pipeline is built with **LangGraph**, which runs as a sequence of nodes sharing one state object:
+
+```
+generate_queries → search_pexels → search_unsplash → search_pixabay
+                                                            ↓
+                                                     combine_images
+                                                            ↓
+                                                       rank_images
+                                                            ↓
+                                                          END
+```
+
+- **`generate_queries`** — asks Gemini to break the description into structured fields and 3 search queries, using an enforced JSON schema so the response is reliably parseable. If Gemini fails, it tries five OpenRouter free-tier models in order before giving up.
+- **`search_pexels` / `search_unsplash` / `search_pixabay`** — each query gets run against that platform; each platform's own results are deduplicated by `(source, id)`.
+- **`combine_images`** — merges all three platforms' results into one list, deduplicated again the same way, since the same photo can otherwise appear twice with different tracking-parameter URLs.
+- **`rank_images`** — sends the combined list to Jev, which judges relevance to the original description in a single call and returns a probability per image. Falls back to a simple keyword-overlap score if Jev is unavailable.
 
 ## Setup
 
-1. **Clone the repository**
-
-   ```bash
-   git clone https://github.com/Aadith47/image-finder.git
-   cd image-finder
+1. Clone the repo and create a virtual environment:
    ```
-
-2. **Create and activate a virtual environment**
-
-   ```bash
    python -m venv venv
-
-   # Windows
-   venv\Scripts\activate
-
-   # macOS / Linux
-   source venv/bin/activate
+   venv\Scripts\activate      # Windows
+   source venv/bin/activate   # macOS/Linux
    ```
 
-3. **Install dependencies**
-
-   ```bash
-   pip install google-genai python-dotenv requests
+2. Install dependencies:
+   ```
+   pip install langchain langchain-google-genai langchain-openai langgraph python-dotenv requests pydantic streamlit
    ```
 
-4. **Configure environment variables**
-
-   Create a `.env` file in the project root:
-
-   ```env
-   GEMINI_API_KEY = your_gemini_api_key_here
-   PEXELS_API_KEY = your_pexels_api_key_here
+3. Create a `.env` file in the project root:
    ```
+   GEMINI_API_KEY=your_key_here
+   PEXELS_API_KEY=your_key_here
+   UNSPLASH_ACCESS_KEY=your_key_here
+   PIXABAY_API_KEY=your_key_here
+   OPENROUTER_API_KEY=your_key_here
+   ```
+   - Gemini: https://ai.google.dev/
+   - Pexels: https://www.pexels.com/api/
+   - Unsplash: https://unsplash.com/developers
+   - Pixabay: https://pixabay.com/api/docs/
+   - OpenRouter: https://openrouter.ai/ (also powers the fallback models and the Jev ranker)
 
-## Usage
+## Running it
 
-```bash
+**Command line:**
+```
 python main.py
 ```
 
-You'll be prompted to describe the image you need. The tool will:
-
-1. Send your description to **Gemini 3.6 Flash** to generate 3 optimized search queries.
-2. Search **Pexels** with each query (5 results per query by default).
-3. Deduplicate and display the results.
-
-**Sample output:**
-
+**Web UI:**
 ```
-Describe the image you need: A sunset over the ocean with a sailboat
-
-Generated search queries:
-- sunset ocean sailboat
-- sailboat silhouette golden hour sea
-- ocean horizon sunset boat
-
-Searching Pexels...
-
-Found 12 images.
-
-ID: 1234567
-Photographer: Jane Doe
-Size: 4000 x 2667
-Alt: Sailboat on calm ocean during sunset
-URL: https://images.pexels.com/photos/...
---------------------------------------------------
+streamlit run app.py
 ```
+This opens the app in your browser, where you can type a description and view results as an image gallery.
 
-## License
+## Known limitations
 
-This project is open source and available under the [MIT License](LICENSE).
+- Ranking and query generation depend on external APIs (Gemini, OpenRouter, Jev); each has a fallback, but if every fallback in a chain fails, that step degrades gracefully rather than crashing (empty queries, or keyword-only ranking).
+- Jev is a very new (2026) model accessed through OpenRouter's alpha Decisions API — its behavior and availability may change.
+- Deduplication is exact-match on `(platform, photo id)`. Two different platforms hosting the literal same photo under two different IDs would not be caught.
+
+## Roadmap
+
+- [x] LangGraph pipeline with Gemini + Pexels
+- [x] Add Unsplash and Pixabay
+- [x] Cross-platform search, combine, and dedupe
+- [x] Gemini → OpenRouter fallback chain for query generation
+- [x] AI-based ranking (Jev) with keyword-overlap fallback
+- [x] Structured, schema-enforced query generation
+- [x] Streamlit UI
+- [ ] Push to GitHub with commit history
