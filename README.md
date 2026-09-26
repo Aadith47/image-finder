@@ -104,19 +104,8 @@ streamlit run app.py
 ```
 This opens the app in your browser, where you can type a description and view results as an image gallery.
 
-## Known limitations
+## Limitations
 
 - Ranking and query generation depend on external APIs (Gemini, OpenRouter, Jev); each has a fallback, but if every fallback in a chain fails, that step degrades gracefully rather than crashing (empty queries, or keyword-only ranking).
 - Jev is a very new (2026) model accessed through OpenRouter's alpha Decisions API — its behavior and availability may change.
 - Deduplication is exact-match on `(platform, photo id)`. Two different platforms hosting the literal same photo under two different IDs would not be caught.
-
-## Roadmap
-
-- [x] LangGraph pipeline with Gemini + Pexels
-- [x] Add Unsplash and Pixabay
-- [x] Cross-platform search, combine, and dedupe
-- [x] Gemini → OpenRouter fallback chain for query generation
-- [x] AI-based ranking (Jev) with keyword-overlap fallback
-- [x] Structured, schema-enforced query generation
-- [x] Streamlit UI
-- [ ] Push to GitHub with commit history
